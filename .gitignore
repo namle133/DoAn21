@@ -1,0 +1,58 @@
+# Large data files
+cdc-pipeline/data/*.csv
+cdc-pipeline/data/*.parquet
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Spark/Hadoop
+metastore_db/
+spark-warehouse/
+derby.log
+
+# Delta Lake
+/tmp/delta/
+/tmp/checkpoint/
+
+# Docker
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
