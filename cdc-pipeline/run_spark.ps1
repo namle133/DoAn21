@@ -1,8 +1,14 @@
 # ============================================================
-# run_spark.ps1 (Windows PowerShell)
-# Script chạy PySpark CDC Consumer trên Windows.
-# Tự dò JDK 17/11/8 tương thích Spark 3.4.x, bỏ qua Java 21+.
+# run_spark.ps1 (Windows PowerShell 5.1+ / PowerShell 7+)
+# Run PySpark CDC Consumer on Windows.
+# Auto-detect JDK 17/11/8 compatible with Spark 3.4.x, skip Java 21+.
 # ============================================================
+# NOTE: This file is intentionally plain ASCII so that Windows
+# PowerShell 5.1 (which reads .ps1 as ANSI/CP1252 by default)
+# parses it correctly. Do NOT add Unicode characters.
+# ============================================================
+
+#Requires -Version 5.1
 
 $ErrorActionPreference = "Stop"
 
@@ -15,7 +21,9 @@ function Get-JavaMajor($javaExe) {
             $minor = if ($Matches[2]) { [int]$Matches[2] } else { 0 }
             if ($major -eq 1) { return $minor } else { return $major }
         }
-    } catch {}
+    } catch {
+        return $null
+    }
     return $null
 }
 
@@ -33,61 +41,65 @@ function Get-CandidateJavaHomes {
     $homes = @()
     foreach ($root in $roots) {
         if (Test-Path $root) {
-            Get-ChildItem $root -Directory -ErrorAction SilentlyContinue |
-                ForEach-Object { $homes += $_.FullName }
+            $children = Get-ChildItem $root -Directory -ErrorAction SilentlyContinue
+            foreach ($c in $children) { $homes += $c.FullName }
         }
     }
-    # SDKMAN for Windows (nếu có)
+
     $sdkman = Join-Path $HOME ".sdkman\candidates\java"
     if (Test-Path $sdkman) {
-        Get-ChildItem $sdkman -Directory | ForEach-Object { $homes += $_.FullName }
+        $children = Get-ChildItem $sdkman -Directory -ErrorAction SilentlyContinue
+        foreach ($c in $children) { $homes += $c.FullName }
     }
-    # java.exe trên PATH
-    $javaOnPath = (Get-Command java -ErrorAction SilentlyContinue)
+
+    $javaOnPath = Get-Command java -ErrorAction SilentlyContinue
     if ($javaOnPath) {
         $homes += (Split-Path (Split-Path $javaOnPath.Source))
     }
+
     return $homes | Select-Object -Unique
 }
 
 function Select-CompatibleJavaHome {
     $homes = Get-CandidateJavaHomes
     foreach ($preferred in 17, 11, 8) {
-        foreach ($home in $homes) {
-            $exe = Join-Path $home "bin\java.exe"
+        foreach ($h in $homes) {
+            $exe = Join-Path $h "bin\java.exe"
             $m = Get-JavaMajor $exe
-            if ($m -eq $preferred) { return $home }
+            if ($m -eq $preferred) { return $h }
         }
     }
     return $null
 }
 
-# ─────── Chọn JAVA_HOME ───────
-$currentMajor = if ($env:JAVA_HOME) {
-    Get-JavaMajor (Join-Path $env:JAVA_HOME "bin\java.exe")
-} else { $null }
+# --- Choose JAVA_HOME ---
+$currentMajor = $null
+if ($env:JAVA_HOME) {
+    $currentMajor = Get-JavaMajor (Join-Path $env:JAVA_HOME "bin\java.exe")
+}
 
-if ($currentMajor -notin 8, 11, 17) {
+$compatible = @(8, 11, 17)
+if ($compatible -notcontains $currentMajor) {
     $pick = Select-CompatibleJavaHome
     if ($pick) {
         $env:JAVA_HOME = $pick
         $env:PATH = (Join-Path $pick "bin") + ";" + $env:PATH
     } else {
-        Write-Warning "Không tìm thấy JDK 8/11/17. Cài đặt JDK 17 rồi chạy lại."
-        Write-Host   "  Tải: https://adoptium.net/temurin/releases/?version=17"
+        Write-Warning "Khong tim thay JDK 8/11/17. Cai dat JDK 17 roi chay lai."
+        Write-Host   "  Tai: https://adoptium.net/temurin/releases/?version=17"
     }
 }
 
-# ─────── Cấu hình Data Lake (MinIO / S3) ───────
-if (-not $env:S3_ENDPOINT)    { $env:S3_ENDPOINT    = "http://localhost:9000" }
-if (-not $env:S3_ACCESS_KEY)  { $env:S3_ACCESS_KEY  = "minioadmin" }
-if (-not $env:S3_SECRET_KEY)  { $env:S3_SECRET_KEY  = "minioadmin" }
-if (-not $env:DELTA_BASE_PATH){ $env:DELTA_BASE_PATH= "s3a://delta-lake/delta" }
-if (-not $env:CHECKPOINT_PATH){ $env:CHECKPOINT_PATH= "s3a://checkpoints/cdc" }
-if (-not $env:TRIGGER_INTERVAL){$env:TRIGGER_INTERVAL= "10 seconds" }
-if (-not $env:KAFKA_BOOTSTRAP){ $env:KAFKA_BOOTSTRAP = "localhost:9092" }
+# --- Data Lake / MinIO config ---
+if (-not $env:S3_ENDPOINT)     { $env:S3_ENDPOINT     = "http://localhost:9000" }
+if (-not $env:S3_ACCESS_KEY)   { $env:S3_ACCESS_KEY   = "minioadmin" }
+if (-not $env:S3_SECRET_KEY)   { $env:S3_SECRET_KEY   = "minioadmin" }
+if (-not $env:DELTA_BASE_PATH) { $env:DELTA_BASE_PATH = "s3a://delta-lake/delta" }
+if (-not $env:CHECKPOINT_PATH) { $env:CHECKPOINT_PATH = "s3a://checkpoints/cdc" }
+if (-not $env:TRIGGER_INTERVAL){ $env:TRIGGER_INTERVAL= "10 seconds" }
+if (-not $env:KAFKA_BOOTSTRAP) { $env:KAFKA_BOOTSTRAP = "localhost:9092" }
 
-# ─────── --add-opens cho Java module system ───────
+# --- add-opens for Java module system ---
 $addOpens = @(
     "--add-opens=java.base/java.lang=ALL-UNNAMED",
     "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
@@ -112,44 +124,51 @@ $packages = @(
 ) -join ","
 
 Write-Host "============================================"
-Write-Host "  Khởi động CDC Consumer (Windows)"
+Write-Host "  Khoi dong CDC Consumer (Windows)"
 Write-Host "============================================"
-Write-Host "  JAVA_HOME : $env:JAVA_HOME"
-Write-Host "  KAFKA     : $env:KAFKA_BOOTSTRAP"
-Write-Host "  DELTA     : $env:DELTA_BASE_PATH"
-Write-Host "  CHECKPOINT: $env:CHECKPOINT_PATH"
-Write-Host "  S3_ENDPT  : $env:S3_ENDPOINT"
-Write-Host "  TRIGGER   : $env:TRIGGER_INTERVAL"
+Write-Host ("  JAVA_HOME : " + $env:JAVA_HOME)
+Write-Host ("  KAFKA     : " + $env:KAFKA_BOOTSTRAP)
+Write-Host ("  DELTA     : " + $env:DELTA_BASE_PATH)
+Write-Host ("  CHECKPOINT: " + $env:CHECKPOINT_PATH)
+Write-Host ("  S3_ENDPT  : " + $env:S3_ENDPOINT)
+Write-Host ("  TRIGGER   : " + $env:TRIGGER_INTERVAL)
 Write-Host ""
 
-# Path local thì tạo thư mục trước
-if ($env:DELTA_BASE_PATH -notmatch '^(s3a|s3|hdfs)://') {
+# --- Local path: create directories upfront ---
+$remoteSchemes = @("s3a:", "s3:", "hdfs:")
+$deltaScheme   = if ($env:DELTA_BASE_PATH   -match "^([a-z0-9]+:)") { $Matches[1] } else { "" }
+$cpScheme      = if ($env:CHECKPOINT_PATH   -match "^([a-z0-9]+:)") { $Matches[1] } else { "" }
+
+if ($remoteSchemes -notcontains $deltaScheme) {
     New-Item -ItemType Directory -Force -Path $env:DELTA_BASE_PATH | Out-Null
 }
-if ($env:CHECKPOINT_PATH -notmatch '^(s3a|s3|hdfs)://') {
-    foreach ($t in "orders","order_products","products") {
+if ($remoteSchemes -notcontains $cpScheme) {
+    foreach ($t in @("orders", "order_products", "products")) {
         New-Item -ItemType Directory -Force -Path (Join-Path $env:CHECKPOINT_PATH $t) | Out-Null
     }
 }
 
-spark-submit `
-    --master "local[4]" `
-    --driver-memory 2g `
-    --executor-memory 2g `
-    --conf spark.sql.shuffle.partitions=4 `
-    --conf spark.default.parallelism=4 `
-    --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
-    --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
-    --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem `
-    --conf "spark.hadoop.fs.s3a.endpoint=$env:S3_ENDPOINT" `
-    --conf "spark.hadoop.fs.s3a.access.key=$env:S3_ACCESS_KEY" `
-    --conf "spark.hadoop.fs.s3a.secret.key=$env:S3_SECRET_KEY" `
-    --conf spark.hadoop.fs.s3a.path.style.access=true `
-    --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false `
-    --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider `
-    --conf spark.hadoop.fs.s3a.committer.name=directory `
-    --conf "spark.driver.extraJavaOptions=$addOpens" `
-    --conf "spark.executor.extraJavaOptions=$addOpens" `
-    --packages $packages `
-    spark/cdc_consumer.py `
-    @args
+# --- Build spark-submit arguments as an array (more robust than backticks) ---
+$sparkArgs = @(
+    "--master", "local[4]",
+    "--driver-memory", "2g",
+    "--executor-memory", "2g",
+    "--conf", "spark.sql.shuffle.partitions=4",
+    "--conf", "spark.default.parallelism=4",
+    "--conf", "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension",
+    "--conf", "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog",
+    "--conf", "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem",
+    "--conf", ("spark.hadoop.fs.s3a.endpoint=" + $env:S3_ENDPOINT),
+    "--conf", ("spark.hadoop.fs.s3a.access.key=" + $env:S3_ACCESS_KEY),
+    "--conf", ("spark.hadoop.fs.s3a.secret.key=" + $env:S3_SECRET_KEY),
+    "--conf", "spark.hadoop.fs.s3a.path.style.access=true",
+    "--conf", "spark.hadoop.fs.s3a.connection.ssl.enabled=false",
+    "--conf", "spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+    "--conf", "spark.hadoop.fs.s3a.committer.name=directory",
+    "--conf", ("spark.driver.extraJavaOptions=" + $addOpens),
+    "--conf", ("spark.executor.extraJavaOptions=" + $addOpens),
+    "--packages", $packages,
+    "spark/cdc_consumer.py"
+) + $args
+
+& spark-submit @sparkArgs
