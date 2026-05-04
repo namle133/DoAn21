@@ -148,6 +148,18 @@ if ($remoteSchemes -notcontains $cpScheme) {
     }
 }
 
+# --- Ensure spark-submit launches the Python script directly ---
+# Người dùng có thể đã set PYSPARK_DRIVER_PYTHON=jupyter (ở profile/zshrc/.bashrc)
+# để lệnh `pyspark` tự mở notebook. Nhưng với spark-submit (chế độ batch/streaming),
+# cần dùng Python thường, nếu không spark-submit sẽ cố chạy file .py qua jupyter
+# và báo `Jupyter command jupyter-...py not found`.
+Remove-Item Env:PYSPARK_DRIVER_PYTHON_OPTS -ErrorAction SilentlyContinue
+if ($env:PYSPARK_PYTHON) {
+    $env:PYSPARK_DRIVER_PYTHON = $env:PYSPARK_PYTHON
+} else {
+    $env:PYSPARK_DRIVER_PYTHON = "python"
+}
+
 # --- Build spark-submit arguments as an array (more robust than backticks) ---
 $sparkArgs = @(
     "--master", "local[4]",

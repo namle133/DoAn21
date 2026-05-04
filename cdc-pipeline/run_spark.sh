@@ -165,6 +165,14 @@ esac
 export KAFKA_BOOTSTRAP DELTA_BASE_PATH CHECKPOINT_PATH TRIGGER_INTERVAL \
        S3_ENDPOINT S3_ACCESS_KEY S3_SECRET_KEY
 
+# Ensure spark-submit runs the Python script directly even if the user
+# has set PYSPARK_DRIVER_PYTHON=jupyter in their shell profile (so that
+# `pyspark` auto-opens a notebook). For batch/streaming submit we must
+# use a regular Python interpreter, otherwise spark-submit will try to
+# launch the script through `jupyter` and fail.
+unset PYSPARK_DRIVER_PYTHON_OPTS
+export PYSPARK_DRIVER_PYTHON="${PYSPARK_PYTHON:-python3}"
+
 spark-submit \
     --master "local[4]" \
     --driver-memory 2g \
