@@ -590,3 +590,10 @@ architecture**, capturing changes from a transactional MySQL database,
 streaming them through Kafka, processing them with Spark Structured
 Streaming, and persisting the resulting state in Delta Lake on
 S3-compatible object storage.
+
+## 👨‍💻 Author
+
+**Le Thanh Nam**
+
+Bachelor of Science in Information Technology  
+VNUHCM - University of Information Technology (UIT)
